@@ -1,0 +1,9 @@
+# ~/ros2-monitor/monitor/docker-compose.yml
+services:
+  hw-monitor:
+    build: .
+    container_name: hwmon
+    network_mode: host
+    environment:
+      - ROS_DOMAIN_ID=0
+    restart: unless-stopped
