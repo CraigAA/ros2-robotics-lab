@@ -1,0 +1,16 @@
+<CycloneDDS>
+  <Domain>
+    <General>
+      <Interfaces><NetworkInterface name="tailscale0"/></Interfaces>
+      <AllowMulticast>false</AllowMulticast>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>30</MaxAutoParticipantIndex>
+      <Peers>
+        <Peer address="ubuntu"/>
+        <Peer address="AA"/>
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>
