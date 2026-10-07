@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ROS 2 Fleet Monitor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdn.jsdelivr.net/npm/roslib@1.4.1/build/roslib.min.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; background: #111; color: #eee; margin: 1.5rem; }
+  header { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
+  input, button { padding: .4rem .6rem; background: #222; color: #eee; border: 1px solid #444; border-radius: 4px; }
+  #status { font-size: .9rem; }
+  .ok { color: #4c4; } .bad { color: #e55; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; margin-top: 1rem; }
+  .card { background: #1c1c1c; border: 1px solid #333; border-radius: 8px; padding: 1rem; }
+  .card.stale { opacity: .45; }
+  .card h2 { margin: 0 0 .6rem; font-size: 1.1rem; display: flex; justify-content: space-between; }
+  .backend { font-size: .75rem; color: #888; font-weight: normal; }
+  .row { margin: .45rem 0; font-size: .85rem; }
+  .bar { height: 8px; background: #333; border-radius: 4px; overflow: hidden; margin-top: 2px; }
+  .fill { height: 100%; background: #4a9; transition: width .3s; }
+  .fill.warn { background: #ca3; } .fill.hot { background: #d55; }
+  .temps { display: flex; gap: 1.2rem; margin-top: .6rem; font-size: .85rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1 style="margin:0">ROS 2 Fleet Monitor</h1>
+  <input id="host" size="22" placeholder="rosbridge host">
+  <button onclick="connect()">Connect</button>
+  <span id="status" class="bad">disconnected</span>
+</header>
+<div id="grid"></div>
+
+<script>
+const hostInput = document.getElementById('host');
+hostInput.value = localStorage.getItem('host') || location.hostname || 'localhost';
+const grid = document.getElementById('grid');
+const statusEl = document.getElementById('status');
+const devices = {};   // topic -> {card, last}
+let ros, rescan;
+
+function connect() {
+  if (ros) ros.close();
+  clearInterval(rescan);
+  const host = hostInput.value.trim();
+  localStorage.setItem('host', host);
+  ros = new ROSLIB.Ros({ url: `ws://${host}:9090` });
+  ros.on('connection', () => { setStatus('connected', true); scan(); rescan = setInterval(scan, 5000); });
+  ros.on('error', () => setStatus('error', false));
+  ros.on('close', () => setStatus('disconnected', false));
+}
+
+function setStatus(text, ok) {
+  statusEl.textContent = text;
+  statusEl.className = ok ? 'ok' : 'bad';
+}
+
+function scan() {
+  ros.getTopics(res => {
+    res.topics.forEach((name, i) => {
+      if (name.endsWith('/stats') && res.types[i] === 'std_msgs/msg/String' && !devices[name]) {
+        subscribe(name);
+      }
+    });
+  });
+}
+
+function subscribe(topic) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  grid.appendChild(card);
+  devices[topic] = { card, last: 0 };
+  new ROSLIB.Topic({ ros, name: topic, messageType: 'std_msgs/msg/String' })
+    .subscribe(msg => {
+      devices[topic].last = Date.now();
+      render(topic, JSON.parse(msg.data));
+    });
+}
+
+function bar(label, pct) {
+  if (pct == null) return `<div class="row">${label}: n/a</div>`;
+  const cls = pct > 90 ? 'hot' : pct > 70 ? 'warn' : '';
+  return `<div class="row">${label}: ${pct.toFixed(1)}%
+    <div class="bar"><div class="fill ${cls}" style="width:${pct}%"></div></div></div>`;
+}
+
+const t = v => v == null ? 'n/a' : v.toFixed(1) + ' °C';
+
+function render(topic, d) {
+  const name = topic.split('/')[1];
+  devices[topic].card.classList.remove('stale');
+  devices[topic].card.innerHTML = `
+    <h2>${name} <span class="backend">gpu: ${d.gpu_backend}</span></h2>
+    ${bar('CPU', d.cpu_percent)}
+    ${bar('RAM', d.ram_percent)}
+    ${bar('GPU', d.gpu_percent)}
+    <div class="temps"><span>CPU ${t(d.cpu_temp_c)}</span><span>GPU ${t(d.gpu_temp_c)}</span></div>`;
+}
+
+// Grey out cards that stop updating (a poor man's watchdog).
+setInterval(() => {
+  for (const d of Object.values(devices))
+    d.card.classList.toggle('stale', Date.now() - d.last > 5000);
+}, 1000);
+
+connect();
+</script>
+</body>
+</html>
